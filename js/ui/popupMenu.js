@@ -21,23 +21,23 @@ const RadioButton = imports.ui.radioButton;
 const Params = imports.misc.params;
 const Util = imports.misc.util;
 
-const SLIDER_SCROLL_STEP = 0.05; /* Slider scrolling step in % */
+var SLIDER_SCROLL_STEP = 0.05; /* Slider scrolling step in % */
 
-const PanelLoc = {
+var PanelLoc = {
     top : 0,
     bottom : 1,
     left : 2,
     right : 3
 };
 
-const OrnamentType = {
+var OrnamentType = {
     NONE: 0,
     CHECK: 1,
     DOT: 2,
     ICON: 3
 };
 
-const FactoryClassTypes = {
+var FactoryClassTypes = {
     'RootMenuClass'            : "RootMenuClass",
     'MenuItemClass'            : "MenuItemClass",
     'SubMenuMenuItemClass'     : "SubMenuMenuItemClass",
@@ -45,7 +45,7 @@ const FactoryClassTypes = {
     'SeparatorMenuItemClass'   : "SeparatorMenuItemClass"
 };
 
-const FactoryEventTypes = {
+var FactoryEventTypes = {
     'opened'    : "opened",
     'closed'    : "closed",
     'clicked'   : "clicked"
@@ -2863,9 +2863,9 @@ PopupSubMenuMenuItem.prototype = {
     _init: function(text) {
         PopupBaseMenuItem.prototype._init.call(this);
 
-        // This check allows PopupSubMenu to be used as a generic scrollable container. PopupSubMenu
-        // already checks for the truthiness of this._triangle (passed as sourceArrow) before using
-        // it, so we can leave it undefined.
+        this._triangle = null;
+
+        // This check allows PopupSubMenu to be used as a generic scrollable container.
         if (typeof text === 'string') {
             this.actor.add_style_class_name('popup-submenu-menu-item');
 

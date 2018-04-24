@@ -455,7 +455,8 @@ _st_create_shadow_pipeline (StShadow     *shadow_spec,
 
   cogl_pipeline_set_layer_texture (pipeline, 0, texture);
 
-  cogl_object_unref (texture);
+  if (texture)
+    cogl_object_unref (texture);
 
   return pipeline;
 }
@@ -502,6 +503,7 @@ _st_create_shadow_pipeline_from_actor (StShadow     *shadow_spec,
       if (!cogl_framebuffer_allocate (fb, &catch_error))
         {
           cogl_error_free (catch_error);
+          cogl_object_unref (offscreen);
           cogl_object_unref (buffer);
           return NULL;
         }

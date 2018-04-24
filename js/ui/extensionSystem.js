@@ -5,6 +5,8 @@ const {getModuleByIndex} = imports.misc.fileUtils;
 
 // Maps uuid -> importer object (extension directory tree)
 var extensions;
+// Kept for compatibility
+var extensionMeta;
 // Lists extension uuid's that are currently active;
 var runningExtensions = [];
 // Arrays of uuids
@@ -89,7 +91,8 @@ function get_object_for_uuid(uuid) {
 function onEnabledExtensionsChanged() {
     enabledExtensions = global.settings.get_strv(ENABLED_EXTENSIONS_KEY);
 
-    unloadRemovedExtensions().then(initEnabledExtensions);
+    unloadRemovedExtensions();
+    initEnabledExtensions();
 }
 
 function initEnabledExtensions() {
@@ -107,12 +110,9 @@ function unloadRemovedExtensions() {
     });
     for (let i = 0; i < uuidList.length; i++) {
         if (enabledExtensions.indexOf(uuidList[i].uuid) === -1) {
-            promises.push(Extension.unloadExtension(uuidList[i].uuid, Extension.Type.EXTENSION));
+            Extension.unloadExtension(uuidList[i].uuid, Extension.Type.EXTENSION);
         }
     }
-    return Promise.all(promises).then(function() {
-        promises = [];
-    });
 }
 
 function init() {
@@ -122,6 +122,7 @@ function init() {
     } catch (e) {
         extensions = {};
     }
+    extensionMeta = Extension.Type.EXTENSION.legacyMeta;
     ExtensionState = Extension.State;
 
     enabledExtensions = global.settings.get_strv(ENABLED_EXTENSIONS_KEY);

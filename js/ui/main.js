@@ -62,9 +62,6 @@
  * This is a container that contains all the desklets as childs. Its actor is
  * put between @global.bottom_window_group and @global.uiGroup.
  * @software_rendering (boolean): Whether software rendering is used
- * @lg_log_file (Gio.FileOutputStream): The stream used to log looking messages
- *                                      to ~/.cinnamon/glass.log
- * @can_log (boolean): Whether looking glass log to file can be used
  * @popup_rendering_actor (Clutter.Actor): The popup actor that is in the process of rendering
  * @xlet_startup_error (boolean): Whether there was at least one xlet that did
  * not manage to load
@@ -83,13 +80,14 @@ const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
 const Cinnamon = imports.gi.Cinnamon;
 const St = imports.gi.St;
+const GObject = imports.gi.GObject;
 const PointerTracker = imports.misc.pointerTracker;
 const Lang = imports.lang;
 
 const SoundManager = imports.ui.soundManager;
 const BackgroundManager = imports.ui.backgroundManager;
 const SlideshowManager = imports.ui.slideshowManager;
-const AppletManager = imports.ui.appletManager;
+var AppletManager = imports.ui.appletManager;
 const SearchProviderManager = imports.ui.searchProviderManager;
 const DeskletManager = imports.ui.deskletManager;
 const ExtensionSystem = imports.ui.extensionSystem;
@@ -122,8 +120,6 @@ const Accessibility = imports.ui.accessibility;
 var LAYOUT_TRADITIONAL = "traditional";
 var LAYOUT_FLIPPED = "flipped";
 var LAYOUT_CLASSIC = "classic";
-
-var CIN_LOG_FOLDER = GLib.get_home_dir() + '/.cinnamon/';
 
 var DEFAULT_BACKGROUND_COLOR = Clutter.Color.from_pixel(0x000000ff);
 
@@ -172,9 +168,6 @@ var applet_side = St.Side.TOP; // Kept to maintain compatibility. Doesn't seem t
 var deskletContainer = null;
 
 var software_rendering = false;
-
-var lg_log_file;
-var can_log = false;
 
 var popup_rendering_actor = null;
 
@@ -295,26 +288,6 @@ function start() {
     global.log = _logInfo;
 
     let cinnamonStartTime = new Date().getTime();
-
-    if (global.settings.get_boolean("enable-looking-glass-logs")) {
-        try {
-            let log_filename = Gio.file_parse_name(CIN_LOG_FOLDER + '/glass.log');
-            let log_backup_filename = Gio.file_parse_name(CIN_LOG_FOLDER + '/glass.log.last');
-            let log_dir = Gio.file_new_for_path(CIN_LOG_FOLDER);
-            if (!log_filename.query_exists(null)) {
-                if (!log_dir.query_exists(null))
-                    log_dir.make_directory_with_parents(null);
-                lg_log_file = log_filename.append_to(0, null);
-            } else {
-                log_filename.copy(log_backup_filename, 1, null, null);
-                log_filename.delete(null);
-                lg_log_file = log_filename.append_to(0, null);
-            }
-            can_log = true;
-        } catch (e) {
-            global.logError("Error during looking-glass log initialization", e);
-        }
-    }
 
     log("About to start Cinnamon");
     if (GLib.getenv('CINNAMON_SOFTWARE_RENDERING')) {
@@ -981,28 +954,23 @@ function formatLogArgument(arg = '', recursion = 0, depth = 6) {
         }
         return arg;
     }
-    let isGObject;
+    let isGObject = arg instanceof GObject.Object;
     let space = '';
     for (let i = 0; i < recursion + 1; i++) {
         space += '    ';
     }
-    // Need to work around CJS being unable to stringify some native objects
-    // https://github.com/linuxmint/cjs/blob/f7638496ea1bec4c6774e6065cb3b2c38b30a7bf/cjs/context.cpp#L138
-    try {
-        isGObject = arg.toString().indexOf('[0x') > -1;
-    } catch (e) {
-        arg = '<unreadable>';
-    }
     if (typeof arg === 'object') {
         let isArray = Array.isArray(arg);
         let brackets = isArray ? ['[', ']'] : ['{', '}'];
+        if (isGObject) {
+            arg = Util.getGObjectPropertyValues(arg);
+            if (Object.keys(arg).length === 0) {
+                return arg.toString();
+            }
+        }
         let array = isArray ? arg : Object.keys(arg);
         // Add beginning bracket with indentation
         let string = brackets[0] + (recursion + 1 > depth ? '' : '\n');
-        // GObjects are referenced in context and likely have circular references.
-        if (recursion === 0) {
-            depth = isGObject ? 2 : 6;
-        }
         for (let j = 0, len = array.length; j < len; j++) {
             if (isArray) {
                 string += space + formatLogArgument(arg[j], recursion + 1, depth) + ',\n';
@@ -1041,8 +1009,7 @@ function formatLogArgument(arg = '', recursion = 0, depth = 6) {
 function _log(category = 'info', msg = '') {
     // Convert arguments into an array so it can be iterated.
     let args = Array.prototype.slice.call(arguments);
-    // Remove category from the list of loggable arguments, renderLogLine will
-    // format it into the final string separately.
+    // Remove category from the list of loggable arguments
     args.shift();
     let text = '';
 
@@ -1060,10 +1027,14 @@ function _log(category = 'info', msg = '') {
         category: category,
         message: text
     };
+
     _errorLogStack.push(out);
-    if (lookingGlass)
+
+    if (lookingGlass) {
         lookingGlass.emitLogUpdate();
-    if (can_log) lg_log_file.write(renderLogLine(out), null);
+    }
+
+    log(`[LookingGlass/${category}] ${text}`);
 }
 
 /**
@@ -1200,30 +1171,6 @@ function _logInfo(msg) {
         let args = Array.prototype.slice.call(arguments);
         _log.apply(this, ['info'].concat(args));
     }
-}
-
-/**
- * formatTime:
- * @d (Date): date object to be formatted
- *
- * Formats a date object into a ISO-8601 format (YYYY-MM-DDTHH:MM:SSZ) in UTC+0
- *
- * Returns (string): a formatted string showing the date
- */
-function formatTime(d) {
-    return d.toISOString();
-}
-
-/**
- * renderLogLine:
- * @line (dictionary): a log line
- *
- * Converts a log line object into a string
- *
- * Returns (string): line in the format CATEGORY t=TIME MESSAGE
- */
-function renderLogLine(line) {
-    return line.category + ' t=' + formatTime(new Date(parseInt(line.timestamp))) + ' ' + line.message + '\n';
 }
 
 /**
@@ -1656,21 +1603,22 @@ function queueDeferredWork(workId) {
  * Returns (boolean): whether the window is interesting
  */
 function isInteresting(metaWindow) {
+
     if (metaWindow.get_title() == "JavaEmbeddedFrame")
         return false;
 
+    // Include any window the tracker finds interesting
     if (tracker.is_window_interesting(metaWindow)) {
-        // The nominal case.
         return true;
     }
-    // The rest of this function is devoted to discovering "orphan" windows
-    // (dialogs without an associated app, e.g., the Logout dialog).
-    if (tracker.get_window_app(metaWindow)) {
-        // orphans don't have an app!
-        return false;
-    }
+
+    // Include app-less dialogs
     let type = metaWindow.get_window_type();
-    return type === Meta.WindowType.DIALOG || type === Meta.WindowType.MODAL_DIALOG;
+    if (!tracker.get_window_app(metaWindow) && (type === Meta.WindowType.DIALOG || type === Meta.WindowType.MODAL_DIALOG)) {
+        return true;
+    }
+
+    return false;
 }
 
 /**

@@ -196,6 +196,7 @@ Extension.prototype = {
             return requireModule(
                 `${this.meta.path}/${this.lowerType}.js`, // path
                 this.meta.path, // dir,
+                this.meta, // meta
                 this.lowerType, // type
                 true, // async
                 true // returnIndex
@@ -223,11 +224,6 @@ Extension.prototype = {
                 return findExtensionSubdirectory(this.dir).then((dir) => {
                     this.dir = dir;
                     this.meta.path = this.dir.get_path();
-                    let pathSections = this.meta.path.split('/');
-                    let version = pathSections[pathSections.length - 1];
-                    try {
-                        imports[type.folder][this.uuid] = imports[type.folder][this.uuid][version];
-                    } catch (e) {/* Extension was reloaded */}
                     return finishLoad();
                 });
             }
@@ -248,7 +244,7 @@ Extension.prototype = {
             extensions.push(this);
 
             if(!type.callbacks.finishExtensionLoad(extensions.length - 1)) {
-                throw new Error(`${type.name} ${uuid}: Could not create applet object.`);
+                throw new Error(`${type.name} ${uuid}: Could not create ${this.lowerType} object.`);
             }
             this.finalize();
             Main.cinnamonDBusService.EmitXletAddedComplete(true, uuid);
@@ -314,7 +310,7 @@ Extension.prototype = {
                 if(fatal)
                     throw logError(msg, this.uuid);
                 else
-                    global.logWarning(this.formatError(this.name, this.uuid, msg));
+                    global.logWarning(formatError(this.uuid, msg));
             }
         }
     },
@@ -487,29 +483,26 @@ function loadExtension(uuid, type) {
  * @deleteConfig (bool): delete also config files, defaults to true
  */
 function unloadExtension(uuid, type, deleteConfig = true) {
-    return new Promise(function(resolve, reject) {
-        let extensionIndex = queryCollection(extensions, {uuid}, true);
-        if (extensionIndex > -1) {
-            let extension = extensions[extensionIndex];
-            extension.unlockRole();
+    let extensionIndex = queryCollection(extensions, {uuid}, true);
+    if (extensionIndex > -1) {
+        let extension = extensions[extensionIndex];
+        extension.unlockRole();
 
-            // Try to disable it -- if it's ERROR'd, we can't guarantee that,
-            // but it will be removed on next reboot, and hopefully nothing
-            // broke too much.
-            try {
-                Type[extension.upperType].callbacks.prepareExtensionUnload(extension, deleteConfig);
-            } catch(e) {
-                logError(`Error disabling ${extension.lowerType} ${extension.uuid}`, extension.uuid, e);
-            }
-            extension.unloadStylesheet();
-            extension.unloadIconDirectory();
-
-            Type[extension.upperType].emit('extension-unloaded', extension.uuid);
-
-            forgetExtension(extensionIndex, uuid, type, true);
-            resolve();
+        // Try to disable it -- if it's ERROR'd, we can't guarantee that,
+        // but it will be removed on next reboot, and hopefully nothing
+        // broke too much.
+        try {
+            Type[extension.upperType].callbacks.prepareExtensionUnload(extension, deleteConfig);
+        } catch (e) {
+            logError(`Error disabling ${extension.lowerType} ${extension.uuid}`, extension.uuid, e);
         }
-    });
+        extension.unloadStylesheet();
+        extension.unloadIconDirectory();
+
+        Type[extension.upperType].emit('extension-unloaded', extension.uuid);
+
+        forgetExtension(extensionIndex, uuid, type, true);
+    }
 }
 
 function forgetExtension(extensionIndex, uuid, type, forgetMeta) {
@@ -535,10 +528,9 @@ function forgetExtension(extensionIndex, uuid, type, forgetMeta) {
  */
 function reloadExtension(uuid, type) {
     if (getExtension(uuid)) {
-        unloadExtension(uuid, type, false).then(function() {
-            Main._addXletDirectoriesToSearchPath();
-            loadExtension(uuid, type);
-        });
+        unloadExtension(uuid, type, false);
+        Main._addXletDirectoriesToSearchPath();
+        loadExtension(uuid, type);
         return;
     }
 

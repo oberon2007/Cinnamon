@@ -9,6 +9,7 @@ const TweenList = imports.tweener.tweenList;
 const Signals = imports.signals;
 
 function init() {
+    overrideDumpStack();
     overrideGio();
     overrideGObject();
     overrideMainloop();
@@ -96,13 +97,19 @@ function overrideGio() {
     Gio.Settings.prototype.set_flags    = function(key, val) { return check_key_and_set(this, Gio._real_set_flags, key, val); }
 }
 
+function overrideDumpStack() {
+    global._dump_gjs_stack = global.dump_gjs_stack;
+    global.dump_gjs_stack = function(message = 'global.dump_gjs_stack():') {
+        global.logWarning(`${message}\n${new Error().stack}`);
+    }
+}
+
 function overrideGObject() {
     GObject.Object.prototype.disconnect = function(id) {
-        if (GObject.signal_handler_is_connected (this, id))
+        if (GObject.signal_handler_is_connected (this, id)) {
             return GObject.signal_handler_disconnect(this, id);
-        else {
-            log("Invalid or null signal handler id used when attempting to .disconnect from an object.");
-            global.dump_gjs_stack();
+        } else {
+            global.dump_gjs_stack('Invalid or null signal handler id used when attempting to .disconnect from an object.');
             return false;
         }
     };
@@ -114,8 +121,7 @@ function overrideMainloop() {
     Mainloop.source_remove = function (id) {
         let dump = GLib.MainContext.default().find_source_by_id(id) == null;
         if (dump) {
-            log("Invalid or null source id used when attempting to run Mainloop.source_remove()");
-            global.dump_gjs_stack();
+            global.dump_gjs_stack('Invalid or null source id used when attempting to run Mainloop.source_remove()');
         } else {
             Mainloop.__real_source_remove(id);
         }
